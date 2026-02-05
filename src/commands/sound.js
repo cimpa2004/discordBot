@@ -2,7 +2,7 @@ module.exports = {
   name: "sound",
   description: "Join a voice channel and play a sound.",
   async execute(message, args) {
-    const path = require("path");
+    const path = require("node:path");
     const {
       joinVoiceChannel,
       createAudioPlayer,
@@ -26,8 +26,11 @@ module.exports = {
       const player = createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
       });
-
-      const audioFile = path.join(__dirname, "..", "..", "sounds", "bell.mp3");
+      const mapSound = require("../utils/mapSound");
+      const audioFile = mapSound(args[0]);
+      if (!audioFile) {
+        return message.reply("Sound not found.");
+      }
       const resource = createAudioResource(audioFile);
 
       connection.subscribe(player);

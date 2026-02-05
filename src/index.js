@@ -56,7 +56,7 @@ try {
               }
             }
           } catch (e) {
-            // Skip directories we can't read
+            console.warn(`Error searching for ffmpeg in ${dir}:`, e.message);
           }
           return null;
         };
