@@ -1,11 +1,36 @@
-const soundMap = {
-  winner: "sounds/winnerWinner.mp3",
-  agostonEsAFasz: "sounds/agostonEsAFasz.mp3",
-  feszultseg: "sounds/feszultseg.mp3",
-  hopOnTheGame: "sounds/hopOnTheGame.mp3",
-  motivacio: "sounds/motivacio.mp3",
-  nemVagyokBuzi: "sounds/nemVagyokBuzi.mp3",
-  nincsPenz: "sounds/nincsPenz.mp3",
-};
+/**
+ * Get a sound file path by name from the database
+ * @param {string} soundName - The name of the sound
+ * @returns {Promise<string|null>} The file path or null if not found
+ */
+async function getSoundPath(soundName) {
+  const dbService = require("../services/databaseService");
 
-module.exports = soundMap;
+  try {
+    const filePath = await dbService.getSound(soundName);
+    return filePath || null;
+  } catch (error) {
+    console.warn("Database unavailable: ", error.message);
+    return null;
+  }
+}
+
+/**
+ * Get all sounds from the database
+ * @returns {Promise<Object|null>} Object mapping sound names to file paths or null if unavailable
+ */
+async function getAllSounds() {
+  const dbService = require("../services/databaseService");
+
+  try {
+    return await dbService.getAllSounds();
+  } catch (error) {
+    console.warn("Database unavailable:", error.message);
+    return null;
+  }
+}
+
+module.exports = {
+  getSoundPath,
+  getAllSounds,
+};
