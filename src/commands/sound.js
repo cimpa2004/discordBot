@@ -2,30 +2,13 @@ module.exports = {
   name: "sound",
   description: "Join a voice channel and play a sound.",
   async execute(message, args) {
-    const path = require("node:path");
-    const {
-      joinVoiceChannel,
-      createAudioPlayer,
-      createAudioResource,
-      NoSubscriberBehavior,
-      AudioPlayerStatus,
-    } = require("@discordjs/voice");
-
-    const voiceChannel = message.member?.voice?.channel;
-    if (!voiceChannel) {
-      return message.reply("You need to be in a voice channel!");
-    }
+    const { createAudioResource } = require("@discordjs/voice");
+    const { joinVoiceChannelWithPlayer } = require("../utils/voiceChannelJoin");
+    const { setupAutoDisconnect } = require("../utils/setupAutoDisconnect");
 
     try {
-      const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
-      });
+      const { connection, player } = joinVoiceChannelWithPlayer(message);
 
-      const player = createAudioPlayer({
-        behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
-      });
       const mapSound = require("../utils/mapSound");
       const audioFile = mapSound(args[0]);
       if (!audioFile) {
@@ -33,14 +16,8 @@ module.exports = {
       }
       const resource = createAudioResource(audioFile);
 
-      connection.subscribe(player);
       player.play(resource);
-
-      player.on(AudioPlayerStatus.Idle, () => {
-        connection.destroy();
-      });
-
-      player.on("error", console.error);
+      setupAutoDisconnect(player, connection);
 
       return message.reply("Playing...");
     } catch (err) {
