@@ -10,6 +10,7 @@ function setupAutoDisconnect(player, connection) {
   player.on(AudioPlayerStatus.Idle, () => {
     setTimeout(() => {
       if (player.state.status === AudioPlayerStatus.Idle) {
+        if (connection.state.status === "destroyed") return;
         connection.destroy();
       }
     }, disconectTimeMS);
