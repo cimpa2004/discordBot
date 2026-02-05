@@ -10,7 +10,7 @@ module.exports = {
       const { connection, player } = joinVoiceChannelWithPlayer(message);
 
       const mapSound = require("../utils/mapSound");
-      const audioFile = mapSound(args[0]);
+      const audioFile = await mapSound(args[0]);
       if (!audioFile) {
         return message.reply("Sound not found.");
       }

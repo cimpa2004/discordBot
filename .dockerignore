@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+pnpm-debug.log
+yarn-error.log
+.env
+.env.local
+.git
+.gitignore
+*.md
+.vscode
+.idea
+dist
+coverage
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: discordbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: discordbot
+      POSTGRES_PASSWORD: discordbot_password
+      POSTGRES_DB: discordbot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U discordbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: discordbot-flyway
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/flyway/sql
+      - ./flyway.conf:/flyway/conf/flyway.conf
+    command: migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/discordbot
+      FLYWAY_USER: discordbot
+      FLYWAY_PASSWORD: discordbot_password
+      FLYWAY_BASELINE_ON_MIGRATE: "true"
+
+volumes:
+  postgres_data:

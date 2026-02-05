@@ -1,6 +1,6 @@
-function mapSound(soundName) {
-  const soundMap = require("../consts/sounds.js");
-  return soundMap[soundName] || null;
+async function mapSound(soundName) {
+  const { getSoundPath } = require("../consts/sounds.js");
+  return await getSoundPath(soundName);
 }
 
 module.exports = mapSound;
