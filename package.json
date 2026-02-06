@@ -12,7 +12,8 @@
     "db:down": "docker-compose down",
     "db:reset": "docker-compose down -v && docker-compose up -d",
     "db:logs": "docker-compose logs -f postgres",
-    "db:migrate": "docker-compose up flyway"
+    "db:migrate": "docker run --rm --network discordbot_default -v ./migrations:/flyway/sql -v ./flyway.conf:/flyway/conf/flyway.conf flyway/flyway:10-alpine -url=jdbc:postgresql://discordbot-postgres:5432/discordbot -user=discordbot -password=discordbot_password migrate",
+    "db:migrate:repair": "docker run --rm --network discordbot_default -v ./migrations:/flyway/sql -v ./flyway.conf:/flyway/conf/flyway.conf flyway/flyway:10-alpine -url=jdbc:postgresql://discordbot-postgres:5432/discordbot -user=discordbot -password=discordbot_password repair"
   },
   "engines": {
     "node": ">=20.0.0"

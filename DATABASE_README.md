@@ -20,18 +20,13 @@ This will start a PostgreSQL 16 container.
 
 ### 2. Run Migrations (First Time Only)
 
-```bash
-docker-compose up flyway
-```
-
-or use the npm script:
+Use the npm script:
 
 ```bash
 pnpm run db:migrate
 ```
 
 This will:
-
 - Run Flyway migrations
 - Create the `sounds` table and populate it with existing sounds
 
@@ -92,12 +87,6 @@ docker-compose down -v
 ### Run Migrations Manually
 
 Migrations now only run when explicitly invoked:
-
-```bash
-docker-compose up flyway
-```
-
-Or use the npm script:
 
 ```bash
 pnpm run db:migrate
