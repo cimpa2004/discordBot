@@ -92,37 +92,9 @@ module.exports = {
         });
       } else if (interaction.customId.startsWith("play_sound_")) {
         const soundName = interaction.customId.replace("play_sound_", "");
-        // Play the sound using your existing logic
-        const {
-          joinVoiceChannelWithPlayer,
-        } = require("../utils/voiceChannelJoin");
-        const { setupAutoDisconnect } = require("../utils/setupAutoDisconnect");
-        const { createAudioResource } = require("@discordjs/voice");
-        const mapSound = require("../utils/mapSound");
-        try {
-          const { connection, player } = joinVoiceChannelWithPlayer(message);
-          const audioFile = await mapSound(soundName);
-          if (!audioFile) {
-            await interaction.reply({
-              content: "Sound not found.",
-              ephemeral: true,
-            });
-            return;
-          }
-          const resource = createAudioResource(audioFile);
-          player.play(resource);
-          setupAutoDisconnect(player, connection);
-          await interaction.reply({
-            content: `Playing ${soundName}!`,
-            ephemeral: true,
-          });
-        } catch (err) {
-          console.error(err);
-          await interaction.reply({
-            content: "Error: " + err.message,
-            ephemeral: true,
-          });
-        }
+        // Use the new playSound utility
+        const { playSound } = require("../utils/playSound");
+        await playSound(message, soundName, (opts) => interaction.reply(opts));
       }
     });
 
