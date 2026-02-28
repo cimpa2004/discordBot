@@ -13,7 +13,8 @@
     "db:reset": "docker-compose down -v && docker-compose up -d",
     "db:logs": "docker-compose logs -f postgres",
     "db:migrate": "docker run --rm --network discordbot_default -v ./migrations:/flyway/sql -v ./flyway.conf:/flyway/conf/flyway.conf flyway/flyway:10-alpine -url=jdbc:postgresql://discordbot-postgres:5432/discordbot -user=discordbot -password=discordbot_password migrate",
-    "db:migrate:repair": "docker run --rm --network discordbot_default -v ./migrations:/flyway/sql -v ./flyway.conf:/flyway/conf/flyway.conf flyway/flyway:10-alpine -url=jdbc:postgresql://discordbot-postgres:5432/discordbot -user=discordbot -password=discordbot_password repair"
+    "db:migrate:repair": "docker run --rm --network discordbot_default -v ./migrations:/flyway/sql -v ./flyway.conf:/flyway/conf/flyway.conf flyway/flyway:10-alpine -url=jdbc:postgresql://discordbot-postgres:5432/discordbot -user=discordbot -password=discordbot_password repair",
+    "spotify:auth": "node scripts/spotify-auth.js"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -30,6 +31,7 @@
     "libsodium-wrappers": "^0.8.2",
     "opusscript": "0.0.8",
     "pg": "^8.11.3",
+    "play-dl": "^1.9.7",
     "sodium-native": "^5.0.10"
   },
   "devDependencies": {
