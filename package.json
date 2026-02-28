@@ -30,6 +30,7 @@
     "libsodium-wrappers": "^0.8.2",
     "opusscript": "0.0.8",
     "pg": "^8.11.3",
+    "play-dl": "^1.9.7",
     "sodium-native": "^5.0.10"
   },
   "devDependencies": {
