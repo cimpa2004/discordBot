@@ -9,27 +9,36 @@ const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
 /**
  * Searches YouTube via play-dl, gets the direct audio URL via yt-dlp --get-url,
  * then fetches it with https — exactly like the soundboard does with S3 URLs.
+ * If track.youtubeUrl is already set (e.g. from the YouTube provider), the
+ * play-dl search step is skipped and the URL is used directly.
  * ffmpeg is already set up in PATH by ffmpegSetup.js.
  *
  * @param {object} track - Resolved track from a provider (see BaseProvider)
  * @returns {Promise<import("@discordjs/voice").AudioResource>}
  */
 async function getAudioResource(track) {
-  const results = await playdl.search(track.searchQuery, {
-    source: { youtube: "video" },
-    limit: 1,
-  });
+  let videoUrl = track.youtubeUrl;
 
-  if (!results.length) {
-    throw new Error(`No YouTube results found for: ${track.searchQuery}`);
+  if (!videoUrl) {
+    // Fall back to searching YouTube via play-dl
+    const results = await playdl.search(track.searchQuery, {
+      source: { youtube: "video" },
+      limit: 1,
+    });
+
+    if (!results.length) {
+      throw new Error(`No YouTube results found for: ${track.searchQuery}`);
+    }
+
+    const videoId = results[0].id;
+    if (!videoId) {
+      throw new Error(
+        `Could not get YouTube video ID for: ${track.searchQuery}`,
+      );
+    }
+
+    videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
   }
-
-  const videoId = results[0].id;
-  if (!videoId) {
-    throw new Error(`Could not get YouTube video ID for: ${track.searchQuery}`);
-  }
-
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
   // Ask yt-dlp for the direct audio stream URL (no downloading)
   const directUrl = await getDirectUrl(videoUrl);

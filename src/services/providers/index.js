@@ -1,4 +1,5 @@
 const spotifyProvider = require("./spotifyProvider");
+const youtubeProvider = require("./youtubeProvider");
 
 /**
  * Registered provider instances.
@@ -7,7 +8,7 @@ const spotifyProvider = require("./spotifyProvider");
  *   2. require() it here and push it into this array
  * @type {import('./BaseProvider')[]}
  */
-const providerList = [spotifyProvider];
+const providerList = [spotifyProvider, youtubeProvider];
 
 /** @type {Map<string, import('./BaseProvider')>} name → provider */
 const providers = new Map(providerList.map((p) => [p.name, p]));
