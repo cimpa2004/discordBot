@@ -76,39 +76,23 @@ async function resolveBestSearch(query) {
     ? relevanceScore(query, youtubeTrack.title)
     : -1;
 
-  console.log(
-    `[providers] Relevance — Spotify: ${spotifyScore.toFixed(2)} ("${spotifyTrack?.title ?? "n/a"}") | YouTube: ${youtubeScore.toFixed(2)} ("${youtubeTrack?.title ?? "n/a"}")`,
-  );
-
   // If YouTube scores meaningfully better, always prefer it
   if (youtubeTrack && youtubeScore > spotifyScore + 0.1) {
-    console.log(
-      `[providers] Best: YouTube (higher relevance) — ${youtubeTrack.title}`,
-    );
     return { tracks: [youtubeTrack], type: "search", provider: "youtube" };
   }
 
   // Tied or Spotify is close: prefer official YouTube channel (exact stream URL)
   if (youtubeTrack?._isOfficial && youtubeScore >= spotifyScore - 0.1) {
-    console.log(
-      `[providers] Best: YouTube (official channel) — ${youtubeTrack.title}`,
-    );
     return { tracks: [youtubeTrack], type: "search", provider: "youtube" };
   }
 
   // Spotify wins otherwise (cleaner metadata)
   if (spotifyTrack) {
-    console.log(
-      `[providers] Best: Spotify — ${spotifyTrack.title} by ${spotifyTrack.artist}`,
-    );
     return { tracks: [spotifyTrack], type: "search", provider: "spotify" };
   }
 
   // Last resort: non-official YouTube result
   if (youtubeTrack) {
-    console.log(
-      `[providers] Best: YouTube (non-official) — ${youtubeTrack.title}`,
-    );
     return { tracks: [youtubeTrack], type: "search", provider: "youtube" };
   }
 
