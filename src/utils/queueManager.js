@@ -5,10 +5,38 @@ const {
   NoSubscriberBehavior,
 } = require("@discordjs/voice");
 
-const { getAudioResource } = require("./streamAudio");
+const { getAudioResource, prefetchResource } = require("./streamAudio");
 const { formatNowPlaying } = require("./formatTrack");
 const disconectTimeMS = require("../consts/disconectTimer");
 const logger = require("./logger").createLogger("Queue");
+
+const PREFETCH_TIMEOUT_MS = 15_000;
+
+/**
+ * Wraps a promise with a hard timeout. Rejects with a descriptive error if
+ * the promise does not settle within `ms` milliseconds.
+ */
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(`Timed out after ${ms / 1000}s waiting for: ${label}`),
+        ),
+      ms,
+    );
+    promise.then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 /**
  * Per-guild playback state.
@@ -31,6 +59,8 @@ function getState(guildId) {
       isPlaying: false,
       nowPlaying: null,
       disconnectTimer: null,
+      /** @type {{ track: object, promise: Promise } | null} */
+      prefetch: null,
     });
   }
   return guildStates.get(guildId);
@@ -83,6 +113,49 @@ function ensurePlayerConnection(state, message, guildId) {
 }
 
 /**
+ * Starts prefetching the first item in the queue for `guildId`.
+ * If the prefetch does not produce a stream within PREFETCH_TIMEOUT_MS the
+ * track is silently dropped from the queue and the next one is tried.
+ * Idempotent — safe to call even when a prefetch is already in flight.
+ */
+function triggerPrefetch(guildId) {
+  const state = guildStates.get(guildId);
+  if (!state || state.queue.length === 0) return;
+
+  const { track } = state.queue[0];
+
+  // Already prefetching this exact track object — nothing to do.
+  if (state.prefetch?.track === track) return;
+
+  logger.info(`Prefetching "${track.title}" for guild ${guildId}`);
+
+  const rawPromise = prefetchResource(track);
+
+  const promise = withTimeout(
+    rawPromise,
+    PREFETCH_TIMEOUT_MS,
+    track.title,
+  ).catch((err) => {
+    logger.warn(
+      `Prefetch timed out / failed for "${track.title}" — removing from queue. Reason: ${err.message}`,
+    );
+    // Remove only if this track is still sitting at position 0
+    if (state.queue.length > 0 && state.queue[0].track === track) {
+      state.queue.shift();
+    }
+    if (state.prefetch?.track === track) state.prefetch = null;
+    // Cascade: try the next track
+    triggerPrefetch(guildId);
+    // Do NOT re-throw: this promise is a background task. If nobody is awaiting
+    // it yet (the common case — current track is still playing), re-throwing
+    // causes an unhandled rejection crash. processQueue falls back to a fresh
+    // getAudioResource() call whenever state.prefetch is null or stale.
+  });
+
+  state.prefetch = { track, promise };
+}
+
+/**
  * Internal: plays the next track in the guild's queue.
  * @param {string} guildId
  */
@@ -125,11 +198,28 @@ async function processQueue(guildId) {
     `Playing "${track.title}" by ${track.artist} [${track.provider}] — ${state.queue.length} track(s) remaining in guild ${guildId}`,
   );
 
-  try {
-    const resource = await getAudioResource(track);
-    state.player.play(resource);
+  // Use an in-flight prefetch for this track when available; otherwise fetch
+  // fresh — both paths are subject to the same 30 s hard timeout.
+  let resourcePromise;
+  if (state.prefetch?.track === track) {
+    logger.info(`Using prefetched resource for "${track.title}"`);
+    resourcePromise = state.prefetch.promise;
+  } else {
+    logger.info(`No prefetch available for "${track.title}", fetching now`);
+    resourcePromise = withTimeout(
+      getAudioResource(track),
+      PREFETCH_TIMEOUT_MS,
+      track.title,
+    );
+  }
+  state.prefetch = null;
 
+  try {
+    const resource = await resourcePromise;
+    state.player.play(resource);
     await textChannel.send(formatNowPlaying(track));
+    // Kick off the prefetch for the next track while this one plays
+    triggerPrefetch(guildId);
   } catch (err) {
     logger.error("Playback error:", err);
     await textChannel
@@ -181,6 +271,9 @@ function enqueue(message, tracks, provider, type, { playNext = false } = {}) {
 
   if (!wasAlreadyPlaying) {
     processQueue(guildId);
+  } else {
+    // Something is already playing — start prefetching queue[0] if not already
+    triggerPrefetch(guildId);
   }
 
   return { addedCount: tracks.length, wasAlreadyPlaying };
@@ -224,6 +317,7 @@ function clearQueue(guildId) {
   if (!state) return { cleared: 0 };
   const cleared = state.queue.length;
   state.queue = [];
+  state.prefetch = null; // discard any in-flight prefetch for the old queue
   logger.info(`Cleared ${cleared} track(s) from queue in guild ${guildId}`);
   return { cleared };
 }

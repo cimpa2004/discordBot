@@ -57,8 +57,12 @@ class YouTubeProvider extends BaseProvider {
       album: "YouTube",
       durationMs: (entry.duration || 0) * 1000,
       searchQuery: entry.title || "",
-      // Pass the direct YouTube URL so streamAudio skips the search step
-      youtubeUrl: `https://www.youtube.com/watch?v=${entry.id}`,
+      // Only set youtubeUrl when we have a real video ID — a missing/undefined
+      // id would produce the literal string "watch?v=undefined" which play-dl
+      // accepts but then fails on internally when fetching format URLs.
+      youtubeUrl: entry.id
+        ? `https://www.youtube.com/watch?v=${entry.id}`
+        : undefined,
     };
   }
 

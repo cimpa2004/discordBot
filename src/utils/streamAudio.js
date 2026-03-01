@@ -1,6 +1,5 @@
-const { execFile } = require("child_process");
-const https = require("https");
-const http = require("http");
+const { spawn } = require("child_process");
+const { PassThrough } = require("stream");
 const playdl = require("play-dl");
 const { createAudioResource, StreamType } = require("@discordjs/voice");
 
@@ -8,11 +7,9 @@ const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
 const logger = require("./logger").createLogger("Stream");
 
 /**
- * Searches YouTube via play-dl, gets the direct audio URL via yt-dlp --get-url,
- * then fetches it with https — exactly like the soundboard does with S3 URLs.
- * If track.youtubeUrl is already set (e.g. from the YouTube provider), the
- * play-dl search step is skipped and the URL is used directly.
- * ffmpeg is already set up in PATH by ffmpegSetup.js.
+ * Builds an AudioResource by piping yt-dlp's stdout directly into Discord.
+ * yt-dlp handles YouTube bot-detection, format selection and all HTTP concerns.
+ * play-dl is only used for the text-search step (metadata, no streaming).
  *
  * @param {object} track - Resolved track from a provider (see BaseProvider)
  * @returns {Promise<import("@discordjs/voice").AudioResource>}
@@ -21,7 +18,7 @@ async function getAudioResource(track) {
   let videoUrl = track.youtubeUrl;
 
   if (!videoUrl) {
-    // Fall back to searching YouTube via play-dl
+    // Resolve a YouTube URL from a text query using play-dl search (metadata only)
     logger.info(`Searching YouTube for: "${track.searchQuery}"`);
     const results = await playdl.search(track.searchQuery, {
       source: { youtube: "video" },
@@ -32,7 +29,6 @@ async function getAudioResource(track) {
       throw new Error(`No YouTube results found for: ${track.searchQuery}`);
     }
 
-    // Pick the best result: prefer official Topic/VEVO channels, then first result
     const best =
       results.find(
         (r) =>
@@ -40,80 +36,94 @@ async function getAudioResource(track) {
           r.channel?.name?.toUpperCase().includes("VEVO"),
       ) ?? results[0];
 
-    const videoId = best.id;
-    if (!videoId) {
+    if (!best.id) {
       throw new Error(
         `Could not get YouTube video ID for: ${track.searchQuery}`,
       );
     }
 
-    videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    videoUrl = `https://www.youtube.com/watch?v=${best.id}`;
     logger.info(`Selected YouTube video: "${best.title}" (${videoUrl})`);
   } else {
-    logger.info(`Using pre-resolved YouTube URL: ${videoUrl}`);
+    logger.info(
+      `Using pre-resolved YouTube URL for "${track.title}": ${videoUrl}`,
+    );
   }
 
-  // Ask yt-dlp for the direct audio stream URL (no downloading)
-  logger.info(`Fetching direct audio URL via yt-dlp for ${videoUrl}`);
-  const directUrl = await getDirectUrl(videoUrl);
+  // Validate the URL contains a proper video ID before spawning yt-dlp
+  if (
+    !/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/.test(videoUrl)
+  ) {
+    throw new Error(`Invalid YouTube URL: ${videoUrl}`);
+  }
 
-  // Fetch the URL and pipe into Discord — same pattern as the soundboard
-  return new Promise((resolve, reject) => {
-    const protocol = directUrl.startsWith("https") ? https : http;
-    protocol
-      .get(directUrl, (res) => {
-        if (res.statusCode >= 400) {
-          const err = new Error(`Audio URL returned HTTP ${res.statusCode}`);
-          logger.error(`Stream failed for ${videoUrl}:`, err);
-          reject(err);
-          return;
-        }
-        logger.info(`Streaming audio — HTTP ${res.statusCode}`);
-        const resource = createAudioResource(res, {
-          inputType: StreamType.Arbitrary,
-        });
-        resolve(resource);
-      })
-      .on("error", (err) => {
-        logger.error(
-          `Network error while streaming audio for ${videoUrl}:`,
-          err,
-        );
-        reject(err);
-      });
-  });
+  return spawnYtdlpStream(videoUrl, track.title);
 }
 
 /**
- * Runs `yt-dlp --get-url -f bestaudio` and returns the direct audio URL.
+ * Spawns yt-dlp and pipes its stdout into an AudioResource.
+ * Uses StreamType.Arbitrary so @discordjs/voice transcodes via ffmpeg.
  * @param {string} videoUrl
- * @returns {Promise<string>}
+ * @returns {Promise<import("@discordjs/voice").AudioResource>}
  */
-function getDirectUrl(videoUrl) {
+function spawnYtdlpStream(videoUrl, title = videoUrl) {
   return new Promise((resolve, reject) => {
-    execFile(
-      YTDLP_PATH,
-      ["-f", "bestaudio", "--get-url", "--no-warnings", videoUrl],
-      (err, stdout, stderr) => {
-        if (err) {
-          if (err.code === "ENOENT") {
-            reject(
-              new Error(
-                "yt-dlp not found. Install with: winget install yt-dlp.yt-dlp\n" +
-                  "Or set YTDLP_PATH in your .env.",
-              ),
-            );
-          } else {
-            reject(new Error(`yt-dlp error: ${stderr || err.message}`));
-          }
-          return;
-        }
-        const url = stdout.trim().split("\n")[0];
-        if (!url) reject(new Error("yt-dlp returned no URL"));
-        else resolve(url);
-      },
-    );
+    logger.info(`Spawning yt-dlp for "${title}": ${videoUrl}`);
+
+    const ytdlp = spawn(YTDLP_PATH, [
+      "-f",
+      "bestaudio",
+      "--no-warnings",
+      "-o",
+      "-", // output raw audio bytes to stdout
+      videoUrl,
+    ]);
+
+    const passthrough = new PassThrough();
+
+    ytdlp.stdout.pipe(passthrough);
+
+    ytdlp.stderr.on("data", (chunk) => {
+      const line = chunk.toString().trim();
+      if (line) logger.debug(`yt-dlp: ${line}`);
+    });
+
+    ytdlp.on("error", (err) => {
+      if (err.code === "ENOENT") {
+        reject(
+          new Error(
+            "yt-dlp not found. Install with: winget install yt-dlp.yt-dlp\n" +
+              "Or set YTDLP_PATH in your .env.",
+          ),
+        );
+      } else {
+        reject(new Error(`yt-dlp process error: ${err.message}`));
+      }
+    });
+
+    // Reject only on non-zero exit with no data yet; if data already flowed
+    // the resource is live and a late exit code is harmless.
+    let started = false;
+    passthrough.once("data", () => {
+      started = true;
+    });
+
+    ytdlp.on("close", (code) => {
+      if (code !== 0 && !started) {
+        reject(
+          new Error(`yt-dlp exited with code ${code} before sending any audio`),
+        );
+      }
+    });
+
+    // Resolve as soon as the first bytes arrive so Discord can start playing
+    passthrough.once("readable", () => {
+      logger.info(`yt-dlp stream is live for "${title}": ${videoUrl}`);
+      resolve(
+        createAudioResource(passthrough, { inputType: StreamType.Arbitrary }),
+      );
+    });
   });
 }
 
-module.exports = { getAudioResource };
+module.exports = { getAudioResource, prefetchResource: getAudioResource };
