@@ -5,6 +5,7 @@ const {
 } = require("../services/providers/index");
 const { enqueue } = require("../utils/queueManager");
 const { formatTrackLine } = require("../utils/formatTrack");
+const logger = require("../utils/logger").createLogger("play");
 
 // --provider <name> flag that can be prepended to any query
 const PROVIDER_FLAG = "--provider";
@@ -104,7 +105,7 @@ module.exports = {
         }
       }
     } catch (err) {
-      console.error("Play command error:", err);
+      logger.error("Play command error:", err);
       await loadingMsg.edit(`❌ Error: ${err.message}`);
     }
   },

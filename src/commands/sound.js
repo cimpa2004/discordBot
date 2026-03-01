@@ -6,7 +6,8 @@ module.exports = {
       const { playSound } = require("../utils/playSound");
       await playSound(message, args[0], (opts) => message.reply(opts));
     } catch (err) {
-      console.error(err);
+      const logger = require("../utils/logger").createLogger("sound");
+      logger.error(err);
       return message.reply("Error: " + err.message);
     }
   },

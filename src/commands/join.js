@@ -1,3 +1,5 @@
+const logger = require("../utils/logger").createLogger("join");
+
 module.exports = {
   name: "join",
   description: "Join the voice channel.",
@@ -7,7 +9,7 @@ module.exports = {
       joinVoiceChannelWithPlayer(message);
       return message.reply("Joined the voice channel!");
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       return message.reply("Error: " + err.message);
     }
   },
