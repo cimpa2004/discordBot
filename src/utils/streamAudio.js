@@ -7,6 +7,15 @@ const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
 const logger = require("./logger").createLogger("Stream");
 
 /**
+ * How many bytes to buffer from yt-dlp before backpressure kicks in.
+ * A large buffer lets yt-dlp download well ahead of playback, absorbing
+ * network hiccups without audio gaps.
+ * Override with the STREAM_BUFFER_MB environment variable.
+ */
+const STREAM_BUFFER_BYTES =
+  (Number(process.env.STREAM_BUFFER_MB) || 3) * 1024 * 1024;
+
+/**
  * Builds an AudioResource by piping yt-dlp's stdout directly into Discord.
  * yt-dlp handles YouTube bot-detection, format selection and all HTTP concerns.
  * play-dl is only used for the text-search step (metadata, no streaming).
@@ -79,7 +88,7 @@ function spawnYtdlpStream(videoUrl, title = videoUrl) {
       videoUrl,
     ]);
 
-    const passthrough = new PassThrough();
+    const passthrough = new PassThrough({ highWaterMark: STREAM_BUFFER_BYTES });
 
     ytdlp.stdout.pipe(passthrough);
 
@@ -118,7 +127,9 @@ function spawnYtdlpStream(videoUrl, title = videoUrl) {
 
     // Resolve as soon as the first bytes arrive so Discord can start playing
     passthrough.once("readable", () => {
-      logger.info(`yt-dlp stream is live for "${title}": ${videoUrl}`);
+      logger.info(
+        `yt-dlp stream is live for "${title}": ${videoUrl} (buffer: ${STREAM_BUFFER_BYTES / 1024 / 1024} MB)`,
+      );
       resolve(
         createAudioResource(passthrough, { inputType: StreamType.Arbitrary }),
       );
