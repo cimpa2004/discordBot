@@ -1,4 +1,5 @@
 const { execFile } = require("child_process");
+const playdl = require("play-dl");
 const BaseProvider = require("./BaseProvider");
 
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
@@ -57,6 +58,44 @@ class YouTubeProvider extends BaseProvider {
       searchQuery: entry.title || "",
       // Pass the direct YouTube URL so streamAudio skips the search step
       youtubeUrl: `https://www.youtube.com/watch?v=${entry.id}`,
+    };
+  }
+
+  /**
+   * Searches YouTube via play-dl and returns the best track found, or null.
+   * Prefers official Topic / VEVO channels.
+   * @param {string} query
+   * @returns {Promise<object|null>}
+   */
+  async searchTrack(query) {
+    const results = await playdl.search(query, {
+      source: { youtube: "video" },
+      limit: 5,
+    });
+
+    if (!results.length) return null;
+
+    const best =
+      results.find(
+        (r) =>
+          r.channel?.name?.endsWith("- Topic") ||
+          r.channel?.name?.toUpperCase().includes("VEVO"),
+      ) ?? results[0];
+
+    const isOfficial = !!(
+      best.channel?.name?.endsWith("- Topic") ||
+      best.channel?.name?.toUpperCase().includes("VEVO")
+    );
+
+    return {
+      provider: "youtube",
+      title: best.title || "Unknown Title",
+      artist: best.channel?.name || "Unknown",
+      album: "YouTube",
+      durationMs: (best.durationInSec || 0) * 1000,
+      searchQuery: best.title || query,
+      youtubeUrl: `https://www.youtube.com/watch?v=${best.id}`,
+      _isOfficial: isOfficial,
     };
   }
 
