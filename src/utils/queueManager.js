@@ -331,4 +331,43 @@ function getNowPlaying(guildId) {
   return guildStates.get(guildId)?.nowPlaying ?? null;
 }
 
-module.exports = { enqueue, getQueue, getNowPlaying, skip, clearQueue };
+/**
+ * Pauses the music player so a sound effect can take over the voice connection.
+ * Returns whether music was paused and the existing voice connection (if any).
+ * @param {string} guildId
+ * @returns {{ wasPaused: boolean, connection: import('@discordjs/voice').VoiceConnection|null }}
+ */
+function pauseForSound(guildId) {
+  const state = guildStates.get(guildId);
+  if (!state || !state.player || !state.isPlaying) {
+    return { wasPaused: false, connection: state?.connection ?? null };
+  }
+  logger.info(`Pausing music in guild ${guildId} for sound effect`);
+  state.player.pause();
+  return { wasPaused: true, connection: state.connection };
+}
+
+/**
+ * Resumes the music player after a sound effect finishes.
+ * Re-subscribes the music player to the connection (the sound player will have
+ * stolen the subscription) and unpauses it.
+ * @param {string} guildId
+ */
+function resumeAfterSound(guildId) {
+  const state = guildStates.get(guildId);
+  if (!state || !state.player || !state.connection) return;
+  if (state.connection.state.status === "destroyed") return;
+  logger.info(`Resuming music in guild ${guildId} after sound effect`);
+  state.connection.subscribe(state.player);
+  state.player.unpause();
+}
+
+module.exports = {
+  enqueue,
+  getQueue,
+  getNowPlaying,
+  skip,
+  clearQueue,
+  pauseForSound,
+  resumeAfterSound,
+};
