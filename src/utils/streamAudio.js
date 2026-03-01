@@ -5,6 +5,7 @@ const playdl = require("play-dl");
 const { createAudioResource, StreamType } = require("@discordjs/voice");
 
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
+const logger = require("./logger").createLogger("Stream");
 
 /**
  * Searches YouTube via play-dl, gets the direct audio URL via yt-dlp --get-url,
@@ -21,6 +22,7 @@ async function getAudioResource(track) {
 
   if (!videoUrl) {
     // Fall back to searching YouTube via play-dl
+    logger.info(`Searching YouTube for: "${track.searchQuery}"`);
     const results = await playdl.search(track.searchQuery, {
       source: { youtube: "video" },
       limit: 5,
@@ -46,9 +48,13 @@ async function getAudioResource(track) {
     }
 
     videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    logger.info(`Selected YouTube video: "${best.title}" (${videoUrl})`);
+  } else {
+    logger.info(`Using pre-resolved YouTube URL: ${videoUrl}`);
   }
 
   // Ask yt-dlp for the direct audio stream URL (no downloading)
+  logger.info(`Fetching direct audio URL via yt-dlp for ${videoUrl}`);
   const directUrl = await getDirectUrl(videoUrl);
 
   // Fetch the URL and pipe into Discord — same pattern as the soundboard
@@ -57,15 +63,24 @@ async function getAudioResource(track) {
     protocol
       .get(directUrl, (res) => {
         if (res.statusCode >= 400) {
-          reject(new Error(`Audio URL returned HTTP ${res.statusCode}`));
+          const err = new Error(`Audio URL returned HTTP ${res.statusCode}`);
+          logger.error(`Stream failed for ${videoUrl}:`, err);
+          reject(err);
           return;
         }
+        logger.info(`Streaming audio — HTTP ${res.statusCode}`);
         const resource = createAudioResource(res, {
           inputType: StreamType.Arbitrary,
         });
         resolve(resource);
       })
-      .on("error", reject);
+      .on("error", (err) => {
+        logger.error(
+          `Network error while streaming audio for ${videoUrl}:`,
+          err,
+        );
+        reject(err);
+      });
   });
 }
 

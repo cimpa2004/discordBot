@@ -1,6 +1,7 @@
 const spotifyProvider = require("./spotifyProvider");
 const youtubeProvider = require("./youtubeProvider");
 const { relevanceScore } = require("../../utils/relevanceScore");
+const logger = require("../../utils/logger").createLogger("Providers");
 
 /**
  * Registered provider instances.
@@ -46,6 +47,7 @@ function detectProvider(input) {
  * @returns {Promise<{tracks: object[], type: string, provider: string}>}
  */
 async function resolveBestSearch(query) {
+  logger.info(`Running dual search (Spotify + YouTube) for: "${query}"`);
   const [spotifyResult, youtubeResult] = await Promise.allSettled([
     spotifyProvider.searchTrack(query),
     youtubeProvider.searchTrack(query),
@@ -57,16 +59,10 @@ async function resolveBestSearch(query) {
     youtubeResult.status === "fulfilled" ? youtubeResult.value : null;
 
   if (spotifyResult.status === "rejected") {
-    console.warn(
-      "[providers] Spotify search failed:",
-      spotifyResult.reason?.message,
-    );
+    logger.warn("Spotify search failed:", spotifyResult.reason?.message);
   }
   if (youtubeResult.status === "rejected") {
-    console.warn(
-      "[providers] YouTube search failed:",
-      youtubeResult.reason?.message,
-    );
+    logger.warn("YouTube search failed:", youtubeResult.reason?.message);
   }
 
   const spotifyScore = spotifyTrack
@@ -76,26 +72,43 @@ async function resolveBestSearch(query) {
     ? relevanceScore(query, youtubeTrack.title)
     : -1;
 
+  logger.info(
+    `Relevance scores — Spotify: ${spotifyScore.toFixed(2)}, YouTube: ${youtubeScore.toFixed(2)}`,
+  );
+
   // If YouTube scores meaningfully better, always prefer it
   if (youtubeTrack && youtubeScore > spotifyScore + 0.1) {
+    logger.info(
+      `Dual search winner: YouTube (score advantage) — "${youtubeTrack.title}"`,
+    );
     return { tracks: [youtubeTrack], type: "search", provider: "youtube" };
   }
 
   // Tied or Spotify is close: prefer official YouTube channel (exact stream URL)
   if (youtubeTrack?._isOfficial && youtubeScore >= spotifyScore - 0.1) {
+    logger.info(
+      `Dual search winner: YouTube (official channel) — "${youtubeTrack.title}"`,
+    );
     return { tracks: [youtubeTrack], type: "search", provider: "youtube" };
   }
 
   // Spotify wins otherwise (cleaner metadata)
   if (spotifyTrack) {
+    logger.info(
+      `Dual search winner: Spotify (metadata quality) — "${spotifyTrack.title}"`,
+    );
     return { tracks: [spotifyTrack], type: "search", provider: "spotify" };
   }
 
   // Last resort: non-official YouTube result
   if (youtubeTrack) {
+    logger.info(
+      `Dual search winner: YouTube (last resort) — "${youtubeTrack.title}"`,
+    );
     return { tracks: [youtubeTrack], type: "search", provider: "youtube" };
   }
 
+  logger.warn(`Dual search found no results for: "${query}"`);
   return { tracks: [], type: "search", provider: "none" };
 }
 
@@ -118,12 +131,20 @@ async function resolveInput(input, forcedProvider) {
 
   if (!provider) {
     const available = [...providers.keys()].join(", ");
-    throw new Error(
+    const err = new Error(
       `Provider "${providerName}" is not supported. Available: ${available}`,
     );
+    logger.error(err.message);
+    throw err;
   }
 
+  logger.info(
+    `Resolving input via ${providerName}${forcedProvider ? " (forced)" : ""}: ${input.slice(0, 80)}`,
+  );
   const result = await provider.resolve(input);
+  logger.info(
+    `Resolved ${result.tracks.length} track(s) [${result.type}] via ${providerName}`,
+  );
   return { ...result, provider: providerName };
 }
 

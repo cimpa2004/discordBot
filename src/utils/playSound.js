@@ -4,6 +4,7 @@ const { createAudioResource } = require("@discordjs/voice");
 const mapSound = require("../utils/mapSound");
 const { getSignedSoundUrl } = require("../utils/s3SignedUrl");
 const https = require("https");
+const logger = require("./logger").createLogger("Sound");
 
 /**
  * Plays a sound in a Discord voice channel using a signed S3 URL.
@@ -28,11 +29,11 @@ async function playSound(message, soundName, replyFn) {
         replyFn({ content: `Playing ${soundName}!`, ephemeral: true });
       })
       .on("error", (err) => {
-        console.error("Error streaming from S3:", err);
+        logger.error("Error streaming from S3:", err);
         replyFn({ content: "Error streaming sound.", ephemeral: true });
       });
   } catch (err) {
-    console.error(err);
+    logger.error(err);
     await replyFn({ content: "Error: " + err.message, ephemeral: true });
   }
 }

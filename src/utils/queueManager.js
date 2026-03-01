@@ -8,6 +8,7 @@ const {
 const { getAudioResource } = require("./streamAudio");
 const { formatNowPlaying } = require("./formatTrack");
 const disconectTimeMS = require("../consts/disconectTimer");
+const logger = require("./logger").createLogger("Queue");
 
 /**
  * Per-guild playback state.
@@ -47,6 +48,9 @@ function ensurePlayerConnection(state, message, guildId) {
 
   // Re-create connection if it was destroyed
   if (!state.connection || state.connection.state.status === "destroyed") {
+    logger.info(
+      `Joining voice channel "${voiceChannel.name}" in guild ${message.guild.id}`,
+    );
     state.connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: message.guild.id,
@@ -57,6 +61,7 @@ function ensurePlayerConnection(state, message, guildId) {
   }
 
   if (!state.player) {
+    logger.info(`Creating new audio player for guild ${message.guild.id}`);
     state.player = createAudioPlayer({
       behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
     });
@@ -69,7 +74,7 @@ function ensurePlayerConnection(state, message, guildId) {
     });
 
     state.player.on("error", (err) => {
-      console.error("[Queue] Player error:", err);
+      logger.error("Player error:", err);
       state.isPlaying = false;
       state.nowPlaying = null;
       processQueue(guildId);
@@ -88,6 +93,9 @@ async function processQueue(guildId) {
 
   if (state.queue.length === 0) {
     // Queue exhausted — start idle disconnect timer
+    logger.info(
+      `Queue exhausted for guild ${guildId} — disconnecting in ${disconectTimeMS / 1000}s if idle`,
+    );
     clearTimeout(state.disconnectTimer);
     state.disconnectTimer = setTimeout(() => {
       if (
@@ -95,6 +103,9 @@ async function processQueue(guildId) {
         state.connection &&
         state.connection.state.status !== "destroyed"
       ) {
+        logger.info(
+          `Disconnecting from voice channel in guild ${guildId} after idle timeout`,
+        );
         state.connection.destroy();
         state.player = null;
         state.connection = null;
@@ -110,13 +121,17 @@ async function processQueue(guildId) {
   state.isPlaying = true;
   state.nowPlaying = track;
 
+  logger.info(
+    `Playing "${track.title}" by ${track.artist} [${track.provider}] — ${state.queue.length} track(s) remaining in guild ${guildId}`,
+  );
+
   try {
     const resource = await getAudioResource(track);
     state.player.play(resource);
 
     await textChannel.send(formatNowPlaying(track));
   } catch (err) {
-    console.error("[Queue] Playback error:", err);
+    logger.error("Playback error:", err);
     await textChannel
       .send(`❌ Skipping **${track.title}**: ${err.message}`)
       .catch(() => {});
@@ -154,8 +169,14 @@ function enqueue(message, tracks, provider, type, { playNext = false } = {}) {
   if (playNext) {
     // Insert at the front so these play immediately after the current track
     state.queue.unshift(...items);
+    logger.info(
+      `Queued ${tracks.length} track(s) next [${provider}/${type}] in guild ${guildId} (queue length: ${state.queue.length})`,
+    );
   } else {
     state.queue.push(...items);
+    logger.info(
+      `Enqueued ${tracks.length} track(s) [${provider}/${type}] in guild ${guildId} (queue length: ${state.queue.length})`,
+    );
   }
 
   if (!wasAlreadyPlaying) {
@@ -183,8 +204,11 @@ function getQueue(guildId) {
 function skip(guildId) {
   const state = guildStates.get(guildId);
   if (!state || !state.isPlaying || !state.player) {
+    logger.info(`Skip requested for guild ${guildId} but nothing is playing`);
     return { skipped: false };
   }
+  const skippedTitle = state.nowPlaying?.title ?? "unknown track";
+  logger.info(`Skipping "${skippedTitle}" in guild ${guildId}`);
   // Stopping the player triggers the Idle event → processQueue
   state.player.stop(true);
   return { skipped: true };
@@ -200,6 +224,7 @@ function clearQueue(guildId) {
   if (!state) return { cleared: 0 };
   const cleared = state.queue.length;
   state.queue = [];
+  logger.info(`Cleared ${cleared} track(s) from queue in guild ${guildId}`);
   return { cleared };
 }
 

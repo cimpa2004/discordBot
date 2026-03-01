@@ -1,6 +1,7 @@
 const { execFile } = require("child_process");
 const playdl = require("play-dl");
 const BaseProvider = require("./BaseProvider");
+const logger = require("../../utils/logger").createLogger("YouTube");
 
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
 
@@ -68,12 +69,16 @@ class YouTubeProvider extends BaseProvider {
    * @returns {Promise<object|null>}
    */
   async searchTrack(query) {
+    logger.info(`Searching YouTube for: "${query}"`);
     const results = await playdl.search(query, {
       source: { youtube: "video" },
       limit: 5,
     });
 
-    if (!results.length) return null;
+    if (!results.length) {
+      logger.warn(`YouTube search returned no results for: "${query}"`);
+      return null;
+    }
 
     const best =
       results.find(
@@ -87,7 +92,7 @@ class YouTubeProvider extends BaseProvider {
       best.channel?.name?.toUpperCase().includes("VEVO")
     );
 
-    return {
+    const result = {
       provider: "youtube",
       title: best.title || "Unknown Title",
       artist: best.channel?.name || "Unknown",
@@ -97,12 +102,19 @@ class YouTubeProvider extends BaseProvider {
       youtubeUrl: `https://www.youtube.com/watch?v=${best.id}`,
       _isOfficial: isOfficial,
     };
+    logger.info(
+      `YouTube search result: "${result.title}" by ${result.artist}${isOfficial ? " [official]" : ""}`,
+    );
+    return result;
   }
 
   async resolve(input) {
     // Normalise youtu.be short URLs
     const isPlaylist = /[?&]list=/.test(input) && !/[?&]v=/.test(input);
 
+    logger.info(
+      `Resolving YouTube ${isPlaylist ? "playlist" : "URL"}: ${input}`,
+    );
     const data = await this._fetchJson(input);
 
     // Playlist / channel
@@ -110,14 +122,22 @@ class YouTubeProvider extends BaseProvider {
       const tracks = data.entries
         .filter((e) => e && e.id)
         .map((e) => this._formatEntry(e));
+      logger.info(
+        `Loaded ${tracks.length} track(s) from YouTube playlist "${data.title || input}"`,
+      );
       return { tracks, type: "playlist" };
     }
 
     // Single video
     if (data.id) {
-      return { tracks: [this._formatEntry(data)], type: "track" };
+      const track = this._formatEntry(data);
+      logger.info(
+        `Resolved YouTube video: "${track.title}" by ${track.artist}`,
+      );
+      return { tracks: [track], type: "track" };
     }
 
+    logger.warn(`YouTube resolve returned no usable data for: ${input}`);
     return { tracks: [], type: "track" };
   }
 }

@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const path = require("node:path");
 const { Client, GatewayIntentBits } = require("discord.js");
+const logger = require("./utils/logger");
 
 // Import setup modules
 const { setupFfmpeg } = require("./setup/ffmpegSetup");
@@ -20,10 +21,10 @@ checkVoiceEncryption();
 async function initializeDatabase() {
   try {
     await dbService.connect();
-    console.log("Database initialized successfully");
+    logger.info("Database initialized successfully");
   } catch (error) {
-    console.error("Failed to initialize database:", error);
-    console.log("Bot will continue without database connection");
+    logger.error("Failed to initialize database:", error);
+    logger.warn("Bot will continue without database connection");
   }
 }
 
@@ -46,7 +47,7 @@ const PREFIX = process.env.PREFIX || "!";
 
 // Event handlers
 client.once("clientReady", async () => {
-  console.log(`${client.user.tag} is online`);
+  logger.info(`${client.user.tag} is online`);
   await initializeDatabase();
 });
 
@@ -56,7 +57,7 @@ client.on("messageCreate", (message) => {
 
 // Graceful shutdown
 process.on("SIGINT", async () => {
-  console.log("Shutting down...");
+  logger.info("Shutting down...");
   await dbService.close();
   client.destroy();
   process.exit(0);
@@ -64,5 +65,5 @@ process.on("SIGINT", async () => {
 
 // Login
 client.login(process.env.BOT_TOKEN).catch((err) => {
-  console.error("Failed to login:", err);
+  logger.error("Failed to login:", err);
 });

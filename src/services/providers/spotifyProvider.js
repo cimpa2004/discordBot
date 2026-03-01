@@ -1,4 +1,5 @@
 const https = require("https");
+const logger = require("../../utils/logger").createLogger("Spotify");
 
 class SpotifyProvider {
   get name() {
@@ -27,12 +28,12 @@ class SpotifyProvider {
 
     // Prefer user OAuth token (required for playlist access since Spotify's 2024 API changes)
     if (this.refreshToken) {
-      console.log("[Spotify] Using user OAuth token (refresh token)");
+      logger.debug("Using user OAuth token (refresh token)");
       return this._refreshUserToken();
     }
 
-    console.warn(
-      "[Spotify] WARNING: No SPOTIFY_REFRESH_TOKEN set — using client credentials. User playlists will return 403.",
+    logger.warn(
+      "No SPOTIFY_REFRESH_TOKEN set — using client credentials. User playlists will return 403.",
     );
     return this._getClientCredentialsToken();
   }
@@ -48,7 +49,7 @@ class SpotifyProvider {
     if (token.refresh_token) {
       this.refreshToken = token.refresh_token;
     }
-    console.log(`[Spotify] User token obtained. Scopes: ${token.scope}`);
+    logger.debug(`User token obtained. Scopes: ${token.scope}`);
     return token.access_token;
   }
 
@@ -230,21 +231,37 @@ class SpotifyProvider {
 
     if (parsed) {
       if (parsed.type === "track") {
+        logger.info(`Resolving Spotify track: ${parsed.id}`);
         const track = await this.getTrack(parsed.id);
+        logger.info(`Resolved track: "${track.title}" by ${track.artist}`);
         return { tracks: [track], type: "track" };
       }
       if (parsed.type === "playlist") {
+        logger.info(`Resolving Spotify playlist: ${parsed.id}`);
         const tracks = await this.getPlaylistTracks(parsed.id);
+        logger.info(
+          `Loaded ${tracks.length} track(s) from Spotify playlist ${parsed.id}`,
+        );
         return { tracks, type: "playlist" };
       }
       if (parsed.type === "album") {
+        logger.info(`Resolving Spotify album: ${parsed.id}`);
         const tracks = await this.getAlbumTracks(parsed.id);
+        logger.info(
+          `Loaded ${tracks.length} track(s) from Spotify album ${parsed.id}`,
+        );
         return { tracks, type: "album" };
       }
     }
 
     // Plain text → treat as search
+    logger.info(`Searching Spotify for: "${input}"`);
     const track = await this.searchTrack(input);
+    if (track) {
+      logger.info(`Spotify search result: "${track.title}" by ${track.artist}`);
+    } else {
+      logger.warn(`Spotify search returned no results for: "${input}"`);
+    }
     return { tracks: track ? [track] : [], type: "search" };
   }
 }

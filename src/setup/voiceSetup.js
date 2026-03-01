@@ -2,10 +2,12 @@
  * Checks voice encryption capabilities and logs the available encryption method
  * @returns {string} The encryption method being used
  */
+const logger = require("../utils/logger").createLogger("Voice");
+
 function checkVoiceEncryption() {
   try {
     const { VoiceConnection } = require("@discordjs/voice");
-    console.log("@discordjs/voice loaded successfully");
+    logger.info("@discordjs/voice loaded successfully");
 
     // Try to load encryption libraries in order of preference
     let encryptionMethod = "none";
@@ -22,15 +24,15 @@ function checkVoiceEncryption() {
           require("tweetnacl");
           encryptionMethod = "tweetnacl";
         } catch (e3) {
-          console.warn("No encryption library found for voice!");
+          logger.warn("No encryption library found for voice!");
         }
       }
     }
 
-    console.log("Voice encryption method:", encryptionMethod);
+    logger.info("Voice encryption method:", encryptionMethod);
     return encryptionMethod;
   } catch (e) {
-    console.error("Failed to load @discordjs/voice:", e.message);
+    logger.error("Failed to load @discordjs/voice:", e);
     return "error";
   }
 }

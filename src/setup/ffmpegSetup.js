@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const logger = require("../utils/logger").createLogger("FFmpeg");
 
 /**
  * Sets up FFmpeg binary path and creates accessible wrappers
@@ -12,7 +13,7 @@ function setupFfmpeg() {
     // Try to get ffmpeg binary path from ffmpeg-static or @ffmpeg-installer/ffmpeg
     try {
       const ffmpegStatic = require("ffmpeg-static");
-      console.log("ffmpeg-static returned:", ffmpegStatic);
+      logger.debug("ffmpeg-static returned:", ffmpegStatic);
 
       // ffmpeg-static can return the path directly or an object with a path property
       if (typeof ffmpegStatic === "string") {
@@ -21,21 +22,21 @@ function setupFfmpeg() {
         ffmpegBinary = ffmpegStatic.path;
       }
     } catch (e) {
-      console.log("ffmpeg-static not found, trying @ffmpeg-installer/ffmpeg");
+      logger.debug("ffmpeg-static not found, trying @ffmpeg-installer/ffmpeg");
       try {
         ffmpegBinary = require("@ffmpeg-installer/ffmpeg").path;
       } catch (ee) {
-        console.warn(
+        logger.warn(
           "No ffmpeg package found; ensure ffmpeg is installed on the system.",
         );
       }
     }
 
-    console.log("Initial ffmpeg binary path:", ffmpegBinary);
+    logger.debug("Initial ffmpeg binary path:", ffmpegBinary);
 
     // If the path doesn't exist (common with pnpm), search for ffmpeg.exe in node_modules
     if (ffmpegBinary && !fs.existsSync(ffmpegBinary)) {
-      console.log("Binary path doesn't exist, searching node_modules...");
+      logger.debug("Binary path doesn't exist, searching node_modules...");
       ffmpegBinary = searchForFfmpeg();
     }
 
@@ -43,14 +44,13 @@ function setupFfmpeg() {
       configureFfmpegEnvironment(ffmpegBinary);
       return ffmpegBinary;
     } else {
-      console.warn(
+      logger.warn(
         `FFmpeg binary not found or does not exist. Path was: ${ffmpegBinary}`,
       );
       return null;
     }
   } catch (e) {
-    console.error("Error setting up FFmpeg:", e.message);
-    console.error(e.stack);
+    logger.error("Error setting up FFmpeg:", e);
     return null;
   }
 }
@@ -69,7 +69,7 @@ function searchForFfmpeg() {
     if (fs.existsSync(searchPath)) {
       const found = findFfmpegRecursive(searchPath);
       if (found) {
-        console.log("Found ffmpeg.exe at:", found);
+        logger.debug("Found ffmpeg.exe at:", found);
         return found;
       }
     }
@@ -96,7 +96,7 @@ function findFfmpegRecursive(dir) {
       }
     }
   } catch (e) {
-    console.warn(`Error searching for ffmpeg in ${dir}:`, e.message);
+    logger.warn(`Error searching for ffmpeg in ${dir}:`, e.message);
   }
   return null;
 }
@@ -119,8 +119,8 @@ function configureFfmpegEnvironment(ffmpegBinary) {
   createFfmpegWrappers(ffmpegBinary, binDir);
   addToPATH(binDir);
 
-  console.log(`FFmpeg binary setup complete. Binary location: ${ffmpegBinary}`);
-  console.log(`Wrapper directory: ${binDir}`);
+  logger.info(`FFmpeg binary setup complete. Binary location: ${ffmpegBinary}`);
+  logger.debug(`Wrapper directory: ${binDir}`);
 }
 
 /**
@@ -139,10 +139,10 @@ function createFfmpegWrappers(ffmpegBinary, binDir) {
       try {
         if (!fs.existsSync(exePath)) {
           fs.copyFileSync(ffmpegBinary, exePath);
-          console.log(`Created ${name}.exe in ${binDir}`);
+          logger.debug(`Created ${name}.exe in ${binDir}`);
         }
       } catch (e) {
-        console.warn(`Could not copy ${name}.exe:`, e.message);
+        logger.warn(`Could not copy ${name}.exe:`, e.message);
       }
     } else {
       // On Unix-like systems, copy the binary directly
@@ -151,10 +151,10 @@ function createFfmpegWrappers(ffmpegBinary, binDir) {
         if (!fs.existsSync(exePath)) {
           fs.copyFileSync(ffmpegBinary, exePath);
           fs.chmodSync(exePath, 0o755);
-          console.log(`Created ${name} in ${binDir}`);
+          logger.debug(`Created ${name} in ${binDir}`);
         }
       } catch (e) {
-        console.warn(`Could not copy ${name}:`, e.message);
+        logger.warn(`Could not copy ${name}:`, e.message);
       }
     }
   }
@@ -168,7 +168,7 @@ function addToPATH(binDir) {
   const currentPath = process.env.PATH || "";
   if (!currentPath.includes(binDir)) {
     process.env.PATH = `${binDir}${path.delimiter}${currentPath}`;
-    console.log(`Added ${binDir} to PATH`);
+    logger.debug(`Added ${binDir} to PATH`);
   }
 }
 
