@@ -23,14 +23,22 @@ async function getAudioResource(track) {
     // Fall back to searching YouTube via play-dl
     const results = await playdl.search(track.searchQuery, {
       source: { youtube: "video" },
-      limit: 1,
+      limit: 5,
     });
 
     if (!results.length) {
       throw new Error(`No YouTube results found for: ${track.searchQuery}`);
     }
 
-    const videoId = results[0].id;
+    // Pick the best result: prefer official Topic/VEVO channels, then first result
+    const best =
+      results.find(
+        (r) =>
+          r.channel?.name?.endsWith("- Topic") ||
+          r.channel?.name?.toUpperCase().includes("VEVO"),
+      ) ?? results[0];
+
+    const videoId = best.id;
     if (!videoId) {
       throw new Error(
         `Could not get YouTube video ID for: ${track.searchQuery}`,
