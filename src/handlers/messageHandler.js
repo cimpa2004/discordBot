@@ -1,3 +1,5 @@
+const logger = require("../utils/logger").createLogger("Handler");
+
 /**
  * Handles incoming messages and executes commands
  * @param {Message} message - Discord message object
@@ -13,10 +15,13 @@ function handleMessage(message, commands, prefix) {
 
   const command = commands.get(cmd);
   if (command && typeof command.execute === "function") {
+    logger.info(
+      `Command "${cmd}" dispatched by ${message.author.tag} in guild ${message.guild?.id ?? "DM"} (args: ${args.join(" ") || "<none>"})`,
+    );
     try {
       command.execute(message, args);
     } catch (err) {
-      console.error("Command execution error:", err);
+      logger.error("Command execution error:", err);
       message.reply("There was an error executing that command.");
     }
   }

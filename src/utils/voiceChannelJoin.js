@@ -3,6 +3,7 @@ const {
   createAudioPlayer,
   NoSubscriberBehavior,
 } = require("@discordjs/voice");
+const logger = require("./logger").createLogger("Voice");
 
 /**
  * Joins a voice channel and creates an audio player
@@ -13,9 +14,15 @@ const {
 function joinVoiceChannelWithPlayer(message) {
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) {
+    logger.error(
+      `User ${message.author.tag} tried to join voice but is not in a channel`,
+    );
     throw new Error("You need to be in a voice channel!");
   }
 
+  logger.info(
+    `Joining voice channel "${voiceChannel.name}" (${voiceChannel.id}) in guild ${message.guild.id}`,
+  );
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: message.guild.id,

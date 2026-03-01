@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const logger = require("../utils/logger").createLogger("Database");
 
 class DatabaseService {
   constructor() {
@@ -17,10 +18,10 @@ class DatabaseService {
     this.pool = new Pool(config);
 
     this.pool.on("error", (err) => {
-      console.error("Unexpected error on idle client", err);
+      logger.error("Unexpected error on idle client", err);
     });
 
-    console.log("Database connection pool initialized");
+    logger.debug("Database connection pool initialized");
   }
 
   async connect() {
@@ -30,11 +31,11 @@ class DatabaseService {
 
     try {
       const client = await this.pool.connect();
-      console.log("Successfully connected to database");
+      logger.info("Successfully connected to database");
       client.release();
       return true;
     } catch (error) {
-      console.error("Failed to connect to database:", error);
+      logger.error("Failed to connect to database:", error);
       throw error;
     }
   }
@@ -53,7 +54,7 @@ class DatabaseService {
 
       return soundMap;
     } catch (error) {
-      console.error("Error fetching sounds:", error);
+      logger.error("Error fetching sounds:", error);
       throw error;
     }
   }
@@ -67,7 +68,7 @@ class DatabaseService {
 
       return result.rows.length > 0 ? result.rows[0].file_path : null;
     } catch (error) {
-      console.error("Error fetching sound:", error);
+      logger.error("Error fetching sound:", error);
       throw error;
     }
   }
@@ -81,7 +82,7 @@ class DatabaseService {
 
       return result.rows[0];
     } catch (error) {
-      console.error("Error adding sound:", error);
+      logger.error("Error adding sound:", error);
       throw error;
     }
   }
@@ -95,7 +96,7 @@ class DatabaseService {
 
       return result.rows.length > 0;
     } catch (error) {
-      console.error("Error removing sound:", error);
+      logger.error("Error removing sound:", error);
       throw error;
     }
   }
@@ -103,7 +104,7 @@ class DatabaseService {
   async close() {
     if (this.pool) {
       await this.pool.end();
-      console.log("Database connection pool closed");
+      logger.info("Database connection pool closed");
     }
   }
 }

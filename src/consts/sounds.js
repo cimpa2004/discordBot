@@ -10,7 +10,7 @@ async function getSoundPath(soundName) {
     const filePath = await dbService.getSound(soundName);
     return filePath || null;
   } catch (error) {
-    console.warn("Database unavailable: ", error.message);
+    logger.warn("Database unavailable:", error.message);
     return null;
   }
 }
@@ -25,7 +25,7 @@ async function getAllSounds() {
   try {
     return await dbService.getAllSounds();
   } catch (error) {
-    console.warn("Database unavailable:", error.message);
+    logger.warn("Database unavailable:", error.message);
     return null;
   }
 }

@@ -1,9 +1,8 @@
 const { getQueue, getNowPlaying } = require("../utils/queueManager");
 const { formatDuration } = require("../utils/formatTrack");
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
 const PAGE_SIZE = 10;
-const PREV = "◀️";
-const NEXT = "▶️";
 const COLLECTOR_TIMEOUT_MS = 60_000;
 
 /**
@@ -44,6 +43,24 @@ function buildPage(nowPlaying, queue, page, totalPages) {
   return lines.join("\n");
 }
 
+/**
+ * Builds the pagination action row. Buttons are disabled when at the boundary.
+ */
+function buildRow(page, totalPages) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("queue_prev")
+      .setLabel("◀ Prev")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page === 0),
+    new ButtonBuilder()
+      .setCustomId("queue_next")
+      .setLabel("Next ▶")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page >= totalPages - 1),
+  );
+}
+
 module.exports = {
   name: "queue",
   description: "Show the current playback queue with pagination.",
@@ -60,30 +77,27 @@ module.exports = {
     const totalPages = Math.max(1, Math.ceil(queue.length / PAGE_SIZE));
     let page = 0;
 
-    const msg = await message.reply(
-      buildPage(nowPlaying, queue, page, totalPages),
-    );
+    const msgOptions = {
+      content: buildPage(nowPlaying, queue, page, totalPages),
+    };
+    if (totalPages > 1) msgOptions.components = [buildRow(page, totalPages)];
 
-    // No pagination controls needed for a single page
+    const msg = await message.reply(msgOptions);
+
+    // No pagination needed for a single page
     if (totalPages <= 1) return;
 
-    await msg.react(PREV);
-    await msg.react(NEXT);
-
-    const collector = msg.createReactionCollector({
-      filter: (reaction, user) =>
-        [PREV, NEXT].includes(reaction.emoji.name) &&
-        user.id === message.author.id,
+    const collector = msg.createMessageComponentCollector({
+      filter: (interaction) =>
+        ["queue_prev", "queue_next"].includes(interaction.customId) &&
+        interaction.user.id === message.author.id,
       time: COLLECTOR_TIMEOUT_MS,
     });
 
-    collector.on("collect", async (reaction, user) => {
-      // Remove the user's reaction so they can click again
-      reaction.users.remove(user.id).catch(() => {});
-
-      if (reaction.emoji.name === NEXT && page < totalPages - 1) page++;
-      else if (reaction.emoji.name === PREV && page > 0) page--;
-      else return;
+    collector.on("collect", async (interaction) => {
+      if (interaction.customId === "queue_next" && page < totalPages - 1)
+        page++;
+      else if (interaction.customId === "queue_prev" && page > 0) page--;
 
       // Re-fetch live queue on each interaction
       const liveQueue = getQueue(guildId);
@@ -91,13 +105,14 @@ module.exports = {
       const livePages = Math.max(1, Math.ceil(liveQueue.length / PAGE_SIZE));
       if (page >= livePages) page = livePages - 1;
 
-      await msg
-        .edit(buildPage(liveNow, liveQueue, page, livePages))
-        .catch(() => {});
+      await interaction.update({
+        content: buildPage(liveNow, liveQueue, page, livePages),
+        components: [buildRow(page, livePages)],
+      });
     });
 
     collector.on("end", () => {
-      msg.reactions.removeAll().catch(() => {});
+      msg.edit({ components: [] }).catch(() => {});
     });
   },
 };

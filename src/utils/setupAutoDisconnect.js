@@ -1,5 +1,6 @@
 const { AudioPlayerStatus } = require("@discordjs/voice");
 const disconectTimeMS = require("../consts/disconectTimer");
+const logger = require("./logger").createLogger("Voice");
 
 /**
  * Sets up auto-disconnect for a voice connection when audio finishes playing
@@ -16,7 +17,7 @@ function setupAutoDisconnect(player, connection) {
     }, disconectTimeMS);
   });
 
-  player.on("error", console.error);
+  player.on("error", (err) => logger.error("Player error:", err));
 }
 
 module.exports = { setupAutoDisconnect };

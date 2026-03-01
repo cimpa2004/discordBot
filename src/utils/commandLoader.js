@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const logger = require("./logger");
 
 /**
  * Loads all command files from the commands directory
@@ -10,7 +11,7 @@ function loadCommands(commandsPath) {
   const commands = new Map();
 
   if (!fs.existsSync(commandsPath)) {
-    console.warn(`Commands directory not found: ${commandsPath}`);
+    logger.warn(`Commands directory not found: ${commandsPath}`);
     return commands;
   }
 
@@ -24,16 +25,16 @@ function loadCommands(commandsPath) {
       const command = require(filePath);
       if (command && command.name) {
         commands.set(command.name, command);
-        console.log(`Loaded command: ${command.name}`);
+        logger.debug(`Loaded command: ${command.name}`);
       } else {
-        console.warn(`Command file ${file} is missing name property`);
+        logger.warn(`Command file ${file} is missing name property`);
       }
     } catch (err) {
-      console.error(`Failed to load command: ${filePath}`, err);
+      logger.error(`Failed to load command: ${filePath}`, err);
     }
   }
 
-  console.log(`Loaded ${commands.size} command(s)`);
+  logger.info(`Loaded ${commands.size} command(s)`);
   return commands;
 }
 
