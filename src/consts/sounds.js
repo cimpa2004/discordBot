@@ -1,3 +1,5 @@
+const logger = require("../utils/logger").createLogger("Sounds");
+
 /**
  * Get a sound file path by name from the database
  * @param {string} soundName - The name of the sound
