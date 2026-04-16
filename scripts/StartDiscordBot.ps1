@@ -15,3 +15,11 @@ Start-Process -FilePath "cmd.exe" -WorkingDirectory $projectRoot -ArgumentList @
     "/k",
     "cd /d `"$projectRoot`" && pnpm start"
 )
+
+$webRoot = Join-Path $projectRoot "web"
+if (Test-Path $webRoot) {
+    Start-Process -FilePath "cmd.exe" -WorkingDirectory $webRoot -ArgumentList @(
+        "/k",
+        "cd /d `"$webRoot`" && pnpm dev"
+    )
+}
