@@ -25,7 +25,7 @@ async function playSound(message, soundName, replyFn) {
   try {
     const guildId = message.guild?.id;
 
-    const audioFile = await mapSound(soundName);
+    const audioFile = await mapSound(soundName, guildId);
     if (!audioFile) {
       await replyFn({ content: "Sound not found.", ephemeral: true });
       return;
