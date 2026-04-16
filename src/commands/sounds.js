@@ -10,10 +10,15 @@ module.exports = {
   description: "Lists all available sounds with buttons.",
   async execute(message, args) {
     const { getAllSounds } = require("../consts/sounds.js");
-    const sounds = await getAllSounds();
-    if (!sounds) {
+    const guildId = message.guild?.id || 0;
+    const guildSounds = await getAllSounds(guildId);
+    const globalSounds = await getAllSounds(0);
+
+    if (!guildSounds && !globalSounds) {
       return message.reply("Sound database is currently unavailable.");
     }
+
+    const sounds = { ...(globalSounds || {}), ...(guildSounds || {}) };
 
     // Pagination setup
     const soundNames = Object.keys(sounds);

@@ -10,6 +10,7 @@ const { checkVoiceEncryption } = require("./setup/voiceSetup");
 const { loadCommands } = require("./utils/commandLoader");
 const { handleMessage } = require("./handlers/messageHandler");
 const dbService = require("./services/databaseService");
+const APIServer = require("./api/server");
 
 // Setup FFmpeg
 setupFfmpeg();
@@ -26,6 +27,23 @@ async function initializeDatabase() {
     logger.error("Failed to initialize database:", error);
     logger.warn("Bot will continue without database connection");
   }
+
+  // Initialize and start API server
+  async function initializeAPIServer() {
+    if (process.env.ENABLE_API_SERVER !== "false") {
+      try {
+        const apiServer = new APIServer();
+        await apiServer.initialize();
+        apiServer.start();
+      } catch (error) {
+       logger.error("Failed to initialize API server:", error);
+       logger.warn("Bot will continue without API server");
+      }
+    }
+  }
+
+// Start API server
+initializeAPIServer();
 }
 
 // Initialize Discord client
