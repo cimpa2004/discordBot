@@ -1,4 +1,4 @@
-const { spawn } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const { PassThrough } = require("stream");
 const playdl = require("play-dl");
 const { createAudioResource, StreamType } = require("@discordjs/voice");
@@ -16,6 +16,39 @@ const STREAM_BUFFER_BYTES =
   (Number(process.env.STREAM_BUFFER_MB) || 3) * 1024 * 1024;
 
 /**
+ * Fallback search using yt-dlp when play-dl search fails.
+ * @param {string} query
+ * @returns {Promise<object[]>}
+ */
+function searchViaYtdlp(query) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      YTDLP_PATH,
+      ["--flat-playlist", "-J", "--no-warnings", `ytsearch5:${query}`],
+      { maxBuffer: 20 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          if (err.code === "ENOENT") {
+            reject(new Error("yt-dlp not found. Set YTDLP_PATH in .env"));
+          } else {
+            reject(new Error(`yt-dlp search error: ${stderr || err.message}`));
+          }
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(stdout);
+          const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+          resolve(entries.filter((entry) => entry && entry.id));
+        } catch {
+          reject(new Error("Failed to parse yt-dlp search JSON output"));
+        }
+      },
+    );
+  });
+}
+
+/**
  * Builds an AudioResource by piping yt-dlp's stdout directly into Discord.
  * yt-dlp handles YouTube bot-detection, format selection and all HTTP concerns.
  * play-dl is only used for the text-search step (metadata, no streaming).
@@ -29,10 +62,23 @@ async function getAudioResource(track) {
   if (!videoUrl) {
     // Resolve a YouTube URL from a text query using play-dl search (metadata only)
     logger.info(`Searching YouTube for: "${track.searchQuery}"`);
-    const results = await playdl.search(track.searchQuery, {
-      source: { youtube: "video" },
-      limit: 5,
-    });
+    let results = [];
+    try {
+      results = await playdl.search(track.searchQuery, {
+        source: { youtube: "video" },
+        limit: 5,
+      });
+    } catch (err) {
+      logger.warn(
+        `play-dl search failed in stream resolver, falling back to yt-dlp: ${err.message}`,
+      );
+      const entries = await searchViaYtdlp(track.searchQuery);
+      results = entries.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        channel: { name: entry.uploader || entry.channel || "Unknown" },
+      }));
+    }
 
     if (!results.length) {
       throw new Error(`No YouTube results found for: ${track.searchQuery}`);

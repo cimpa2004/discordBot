@@ -67,6 +67,22 @@ class YouTubeProvider extends BaseProvider {
   }
 
   /**
+   * Uses yt-dlp search as a fallback when play-dl search fails.
+   * @param {string} query
+   * @returns {Promise<object[]>}
+   */
+  async _searchViaYtdlp(query) {
+    try {
+      const data = await this._fetchJson(`ytsearch5:${query}`);
+      if (!Array.isArray(data.entries)) return [];
+      return data.entries.filter((e) => e && e.id);
+    } catch (err) {
+      logger.warn(`yt-dlp fallback search failed: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Searches YouTube via play-dl and returns the best track found, or null.
    * Prefers official Topic / VEVO channels.
    * @param {string} query
@@ -74,10 +90,22 @@ class YouTubeProvider extends BaseProvider {
    */
   async searchTrack(query) {
     logger.info(`Searching YouTube for: "${query}"`);
-    const results = await playdl.search(query, {
-      source: { youtube: "video" },
-      limit: 5,
-    });
+    let results = [];
+    try {
+      results = await playdl.search(query, {
+        source: { youtube: "video" },
+        limit: 5,
+      });
+    } catch (err) {
+      logger.warn(`play-dl search failed, falling back to yt-dlp: ${err.message}`);
+      const entries = await this._searchViaYtdlp(query);
+      results = entries.map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        durationInSec: entry.duration || 0,
+        channel: { name: entry.uploader || entry.channel || "Unknown" },
+      }));
+    }
 
     if (!results.length) {
       logger.warn(`YouTube search returned no results for: "${query}"`);
