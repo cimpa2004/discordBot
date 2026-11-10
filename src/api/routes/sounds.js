@@ -1,6 +1,6 @@
 const express = require("express");
 const multer = require("multer");
-const AWS = require("aws-sdk");
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
 const dbService = require("../../services/databaseService");
 const { authMiddleware, guildMembershipMiddleware } = require("../middleware/auth");
@@ -26,10 +26,12 @@ const upload = multer({
 });
 
 // Configure AWS S3
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+const s3 = new S3Client({
   region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
 });
 
 /**
@@ -133,14 +135,14 @@ router.post(
       const s3Key = `guild-${req.guildId}/${sanitizedName}-${uuidv4()}.mp3`;
 
       // Upload to S3
-      const uploadParams = {
+      const uploadParams = new PutObjectCommand({
         Bucket: process.env.AWS_S3_BUCKET,
         Key: s3Key,
         Body: req.file.buffer,
         ContentType: "audio/mpeg",
-      };
+      });
 
-      await s3.upload(uploadParams).promise();
+      await s3.send(uploadParams);
       logger.info(`Uploaded sound to S3: ${s3Key}`);
 
       // Save to database
@@ -249,12 +251,12 @@ router.delete(
 
       // Delete from S3
       try {
-        await s3
-          .deleteObject({
+        await s3.send(
+          new DeleteObjectCommand({
             Bucket: process.env.AWS_S3_BUCKET,
             Key: sound.file_path,
           })
-          .promise();
+        );
         logger.info(`Deleted sound from S3: ${sound.file_path}`);
       } catch (s3Error) {
         logger.warn(`Failed to delete from S3: ${sound.file_path}`, s3Error);
