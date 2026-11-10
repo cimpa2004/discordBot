@@ -1,9 +1,22 @@
-const { execFile, spawn } = require("child_process");
+const { execFile } = require("child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const playdl = require("play-dl");
 const { createAudioResource, StreamType } = require("@discordjs/voice");
 
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
 const logger = require("./logger").createLogger("Stream");
+const resourceStreams = new WeakMap();
+const cancelledStreams = new WeakSet();
+const DOWNLOAD_RETRIES = 2;
+const DOWNLOAD_FORMATS = [
+  "251",
+  "249",
+  "140",
+  "139",
+  "18",
+];
 
 /**
  * Fallback search using yt-dlp when play-dl search fails.
@@ -101,75 +114,114 @@ async function getAudioResource(track) {
     throw new Error(`Invalid YouTube URL: ${videoUrl}`);
   }
 
-  return spawnYtdlpStream(videoUrl, track.title);
+  return downloadYtdlpFile(videoUrl, track.title);
 }
 
 /**
- * Spawns yt-dlp and passes its media stdout directly to Discord.
+ * Downloads one complete WebM/Opus track before handing it to Discord.
+ * This avoids a live child-process pipe being mistaken for an ended resource.
  * @param {string} videoUrl
  * @param {string} title
  * @returns {Promise<import("@discordjs/voice").AudioResource>}
  */
-function spawnYtdlpStream(videoUrl, title) {
+function downloadYtdlpFile(videoUrl, title) {
   return new Promise((resolve, reject) => {
-    logger.info(`Spawning yt-dlp for "${title}": ${videoUrl}`);
-    const ytdlp = spawn(YTDLP_PATH, [
-      "-f",
-      "bestaudio",
-      "--no-playlist",
-      "--no-warnings",
-      "-o",
-      "-",
-      videoUrl,
-    ]);
-
-    let settled = false;
-    const fail = (err) => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    };
-
-    ytdlp.on("error", (err) => {
-      if (err.code === "ENOENT") {
-        fail(
-          new Error(
-            "yt-dlp not found. Install with: winget install yt-dlp.yt-dlp\n" +
-              "Or set YTDLP_PATH in your .env.",
-          ),
-        );
-      } else {
-        fail(new Error(`yt-dlp process error: ${err.message}`));
-      }
-    });
-
-    ytdlp.stderr.on("data", (chunk) => {
-      const line = chunk.toString().trim();
-      if (line) logger.debug(`yt-dlp: ${line}`);
-    });
-
-    ytdlp.stdout.once("readable", () => {
-      if (settled) return;
-      settled = true;
-      logger.info(`yt-dlp stream is live for "${title}"`);
-      resolve(
-        createAudioResource(ytdlp.stdout, {
-          inputType: StreamType.Arbitrary,
-        }),
+    function attempt(formatIndex, retryNumber) {
+      const format = DOWNLOAD_FORMATS[formatIndex];
+      const filePath = path.join(
+        os.tmpdir(),
+        `discordbot-${Date.now()}-${Math.random().toString(36).slice(2)}.webm`,
       );
-    });
+      logger.info(
+        `Downloading audio for "${title}" with yt-dlp (format ${format}, retry ${retryNumber}/${DOWNLOAD_RETRIES})`,
+      );
 
-    ytdlp.stdout.once("error", (err) => {
-      logger.error(`yt-dlp audio stream failed for "${title}":`, err);
-      fail(new Error(`yt-dlp audio stream error: ${err.message}`));
-    });
+      execFile(
+        YTDLP_PATH,
+        [
+          "--no-playlist",
+          "--no-part",
+          "--retries",
+          "3",
+          "--fragment-retries",
+          "3",
+          "--retry-sleep",
+          "1",
+          "--no-warnings",
+          "--no-progress",
+          "-f",
+          format,
+          "-o",
+          filePath,
+          videoUrl,
+        ],
+        { maxBuffer: 2 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) {
+            fs.rm(filePath, { force: true }, () => {});
+            if (err.code === "ENOENT") {
+              reject(
+                new Error(
+                  "yt-dlp not found. Install with: winget install yt-dlp.yt-dlp\n" +
+                    "Or set YTDLP_PATH in your .env.",
+                ),
+              );
+              return;
+            }
+            if (retryNumber < DOWNLOAD_RETRIES) {
+              setTimeout(() => attempt(formatIndex, retryNumber + 1), 1000);
+              return;
+            }
+            if (formatIndex + 1 < DOWNLOAD_FORMATS.length) {
+              setTimeout(() => attempt(formatIndex + 1, 1), 1000);
+              return;
+            }
+            reject(new Error(`yt-dlp error: ${stderr || err.message}`));
+            return;
+          }
 
-    ytdlp.on("close", (code) => {
-      if (code !== 0 && !settled) {
-        fail(new Error(`yt-dlp exited with code ${code} before sending audio`));
-      }
-    });
+          const audioStream = fs.createReadStream(filePath);
+          const cleanup = () => fs.rm(filePath, { force: true }, () => {});
+          audioStream.once("close", cleanup);
+          audioStream.once("error", (streamError) => {
+            if (cancelledStreams.has(audioStream)) return;
+            logger.error(
+              `Audio file stream failed for "${title}":`,
+              streamError,
+            );
+            cleanup();
+          });
+
+          const resource = createAudioResource(audioStream, {
+            inputType: StreamType.Arbitrary,
+          });
+          resourceStreams.set(resource, audioStream);
+          logger.info(`Audio file is ready for "${title}"`);
+          resolve(resource);
+        },
+      );
+    }
+
+    attempt(0, 1);
   });
 }
 
-module.exports = { getAudioResource, prefetchResource: getAudioResource };
+/**
+ * Stops the yt-dlp process associated with an audio resource.
+ * A player stop destroys the stdout pipe first, so mark the resource before
+ * stopping the process to avoid reporting that intentional close as a failure.
+ * @param {import("@discordjs/voice").AudioResource|null} resource
+ */
+function stopAudioResource(resource) {
+  if (!resource) return;
+  const audioStream = resourceStreams.get(resource);
+  if (!audioStream || audioStream.destroyed) return;
+  cancelledStreams.add(audioStream);
+  audioStream.destroy();
+}
+
+module.exports = {
+  getAudioResource,
+  prefetchResource: getAudioResource,
+  stopAudioResource,
+};
