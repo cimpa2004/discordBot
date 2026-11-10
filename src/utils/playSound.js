@@ -5,6 +5,7 @@ const {
   createAudioPlayer,
   AudioPlayerStatus,
   NoSubscriberBehavior,
+  StreamType,
 } = require("@discordjs/voice");
 const mapSound = require("../utils/mapSound");
 const { getSignedSoundUrl } = require("../utils/s3SignedUrl");
@@ -25,7 +26,7 @@ async function playSound(message, soundName, replyFn) {
   try {
     const guildId = message.guild?.id;
 
-    const audioFile = await mapSound(soundName);
+    const audioFile = await mapSound(soundName, guildId);
     if (!audioFile) {
       await replyFn({ content: "Sound not found.", ephemeral: true });
       return;
@@ -56,11 +57,37 @@ async function playSound(message, soundName, replyFn) {
       ownConnection = true;
     }
 
-    const signedUrl = getSignedSoundUrl(audioFile, 60);
+    const signedUrl = await getSignedSoundUrl(audioFile, 60);
 
     https
       .get(signedUrl, (res) => {
-        const resource = createAudioResource(res);
+        if (
+          res.statusCode === undefined ||
+          res.statusCode < 200 ||
+          res.statusCode >= 300
+        ) {
+          res.resume();
+          const error = new Error(
+            `Sound URL returned HTTP ${res.statusCode ?? "unknown"}`,
+          );
+          logger.error("Sound stream request failed:", error);
+          replyFn({
+            content: `Error streaming sound: ${error.message}`,
+            ephemeral: true,
+          });
+          if (guildId && wasPaused) {
+            resumeAfterSound(guildId);
+          }
+          return;
+        }
+
+        res.once("error", (err) => {
+          logger.error("Sound response stream error:", err);
+        });
+
+        const resource = createAudioResource(res, {
+          inputType: StreamType.Arbitrary,
+        });
         soundPlayer.play(resource);
         replyFn({ content: `Playing ${soundName}!`, ephemeral: true });
 

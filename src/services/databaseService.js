@@ -40,13 +40,13 @@ class DatabaseService {
     }
   }
 
-  async getAllSounds() {
+  async getAllSounds(guildId = 0) {
     try {
       const result = await this.pool.query(
-        "SELECT name, file_path FROM sounds ORDER BY name",
+        "SELECT name, file_path FROM sounds WHERE guild_id = $1 ORDER BY name",
+        [String(guildId)],
       );
 
-      // Convert to the same format as the original soundMap
       const soundMap = {};
       result.rows.forEach((row) => {
         soundMap[row.name] = row.file_path;
@@ -59,11 +59,11 @@ class DatabaseService {
     }
   }
 
-  async getSound(name) {
+  async getSound(name, guildId = 0) {
     try {
       const result = await this.pool.query(
-        "SELECT file_path FROM sounds WHERE name = $1",
-        [name],
+        "SELECT file_path FROM sounds WHERE guild_id = $1 AND name = $2",
+        [String(guildId), name],
       );
 
       return result.rows.length > 0 ? result.rows[0].file_path : null;
@@ -73,11 +73,11 @@ class DatabaseService {
     }
   }
 
-  async addSound(name, filePath) {
+  async addSound(name, filePath, guildId = 0) {
     try {
       const result = await this.pool.query(
-        "INSERT INTO sounds (name, file_path) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET file_path = $2, updated_at = CURRENT_TIMESTAMP RETURNING *",
-        [name, filePath],
+        "INSERT INTO sounds (guild_id, name, file_path) VALUES ($1, $2, $3) ON CONFLICT (guild_id, name) DO UPDATE SET file_path = EXCLUDED.file_path, updated_at = CURRENT_TIMESTAMP RETURNING *",
+        [String(guildId), name, filePath],
       );
 
       return result.rows[0];
@@ -87,16 +87,121 @@ class DatabaseService {
     }
   }
 
-  async removeSound(name) {
+  async removeSound(name, guildId = 0) {
     try {
       const result = await this.pool.query(
-        "DELETE FROM sounds WHERE name = $1 RETURNING *",
-        [name],
+        "DELETE FROM sounds WHERE guild_id = $1 AND name = $2 RETURNING *",
+        [String(guildId), name],
       );
 
       return result.rows.length > 0;
     } catch (error) {
       logger.error("Error removing sound:", error);
+      throw error;
+    }
+  }
+
+  async getGuildSounds(guildId) {
+    try {
+      const result = await this.pool.query(
+        "SELECT id, guild_id, name, file_path, description, uploaded_by, created_at, updated_at FROM sounds WHERE guild_id = $1 ORDER BY name",
+        [String(guildId)],
+      );
+
+      return result.rows;
+    } catch (error) {
+      logger.error("Error fetching guild sounds:", error);
+      throw error;
+    }
+  }
+
+  async getSoundsByGuildIds(guildIds) {
+    try {
+      const normalizedGuildIds = [...new Set((guildIds || []).map((id) => String(id)))];
+
+      if (normalizedGuildIds.length === 0) {
+        return [];
+      }
+
+      const placeholders = normalizedGuildIds.map((_, index) => `$${index + 1}`).join(", ");
+      const query =
+        "SELECT id, guild_id, name, file_path, description, uploaded_by, created_at, updated_at FROM sounds WHERE guild_id IN (" +
+        placeholders +
+        ") ORDER BY name";
+
+      const result = await this.pool.query(query, normalizedGuildIds);
+      return result.rows;
+    } catch (error) {
+      logger.error("Error fetching sounds for guild list:", error);
+      throw error;
+    }
+  }
+
+  async getGuildSound(guildId, name) {
+    try {
+      const result = await this.pool.query(
+        "SELECT * FROM sounds WHERE guild_id = $1 AND name = $2",
+        [String(guildId), name],
+      );
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      logger.error("Error fetching guild sound:", error);
+      throw error;
+    }
+  }
+
+  async getSoundById(soundId) {
+    try {
+      const result = await this.pool.query("SELECT * FROM sounds WHERE id = $1", [
+        soundId,
+      ]);
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      logger.error("Error fetching sound by ID:", error);
+      throw error;
+    }
+  }
+
+  async addGuildSound(guildId, name, filePath, uploadedBy, description = null) {
+    try {
+      const result = await this.pool.query(
+        "INSERT INTO sounds (guild_id, name, file_path, uploaded_by, description) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+        [String(guildId), name, filePath, String(uploadedBy), description],
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      logger.error("Error adding guild sound:", error);
+      throw error;
+    }
+  }
+
+  async removeGuildSound(soundId) {
+    try {
+      const result = await this.pool.query(
+        "DELETE FROM sounds WHERE id = $1 RETURNING *",
+        [soundId],
+      );
+
+      return result.rows.length > 0;
+    } catch (error) {
+      logger.error("Error removing guild sound:", error);
+      throw error;
+    }
+  }
+
+  async updateGuildSound(soundId, updates) {
+    try {
+      const { name, description } = updates;
+      const result = await this.pool.query(
+        "UPDATE sounds SET name = COALESCE($1, name), description = COALESCE($2, description), updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *",
+        [name, description, soundId],
+      );
+
+      return result.rows.length > 0 ? result.rows[0] : null;
+    } catch (error) {
+      logger.error("Error updating guild sound:", error);
       throw error;
     }
   }
@@ -109,6 +214,5 @@ class DatabaseService {
   }
 }
 
-// Export a singleton instance
 const dbService = new DatabaseService();
 module.exports = dbService;
