@@ -56,7 +56,7 @@ async function playSound(message, soundName, replyFn) {
       ownConnection = true;
     }
 
-    const signedUrl = getSignedSoundUrl(audioFile, 60);
+    const signedUrl = await getSignedSoundUrl(audioFile, 60);
 
     https
       .get(signedUrl, (res) => {
