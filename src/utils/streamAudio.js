@@ -119,6 +119,7 @@ async function getAudioResource(track) {
 
 /**
  * Downloads one complete WebM/Opus track before handing it to Discord.
+ * Candidate formats are downloaded concurrently; the first complete file wins.
  * This avoids a live child-process pipe being mistaken for an ended resource.
  * @param {string} videoUrl
  * @param {string} title
@@ -126,17 +127,31 @@ async function getAudioResource(track) {
  */
 function downloadYtdlpFile(videoUrl, title) {
   return new Promise((resolve, reject) => {
-    function attempt(formatIndex, retryNumber) {
-      const format = DOWNLOAD_FORMATS[formatIndex];
+    let settled = false;
+    let remaining = DOWNLOAD_FORMATS.length;
+    let lastError = null;
+    const activeProcesses = new Set();
+    const activeFiles = new Set();
+
+    function finishWithError() {
+      remaining -= 1;
+      if (remaining > 0 || settled) return;
+      settled = true;
+      reject(lastError ?? new Error("yt-dlp could not download audio"));
+    }
+
+    function attempt(format, retryNumber) {
+      if (settled) return;
       const filePath = path.join(
         os.tmpdir(),
         `discordbot-${Date.now()}-${Math.random().toString(36).slice(2)}.webm`,
       );
+      activeFiles.add(filePath);
       logger.info(
         `Downloading audio for "${title}" with yt-dlp (format ${format}, retry ${retryNumber}/${DOWNLOAD_RETRIES})`,
       );
 
-      execFile(
+      const child = execFile(
         YTDLP_PATH,
         [
           "--no-playlist",
@@ -157,30 +172,35 @@ function downloadYtdlpFile(videoUrl, title) {
         ],
         { maxBuffer: 2 * 1024 * 1024 },
         (err, stdout, stderr) => {
+          activeProcesses.delete(child);
+          if (settled) {
+            fs.rm(filePath, { force: true }, () => {});
+            return;
+          }
           if (err) {
             fs.rm(filePath, { force: true }, () => {});
             if (err.code === "ENOENT") {
-              reject(
-                new Error(
-                  "yt-dlp not found. Install with: winget install yt-dlp.yt-dlp\n" +
-                    "Or set YTDLP_PATH in your .env.",
-                ),
+              lastError = new Error(
+                "yt-dlp not found. Install with: winget install yt-dlp.yt-dlp\n" +
+                  "Or set YTDLP_PATH in your .env.",
               );
+              finishWithError();
               return;
             }
             if (retryNumber < DOWNLOAD_RETRIES) {
-              setTimeout(() => attempt(formatIndex, retryNumber + 1), 1000);
+              setTimeout(
+                () => attempt(format, retryNumber + 1),
+                1000,
+              );
               return;
             }
-            if (formatIndex + 1 < DOWNLOAD_FORMATS.length) {
-              setTimeout(() => attempt(formatIndex + 1, 1), 1000);
-              return;
-            }
-            reject(new Error(`yt-dlp error: ${stderr || err.message}`));
+            lastError = new Error(`yt-dlp error: ${stderr || err.message}`);
+            finishWithError();
             return;
           }
 
           const audioStream = fs.createReadStream(filePath);
+          activeFiles.delete(filePath);
           const cleanup = () => fs.rm(filePath, { force: true }, () => {});
           audioStream.once("close", cleanup);
           audioStream.once("error", (streamError) => {
@@ -196,13 +216,28 @@ function downloadYtdlpFile(videoUrl, title) {
             inputType: StreamType.Arbitrary,
           });
           resourceStreams.set(resource, audioStream);
+          settled = true;
+          logger.info(
+            `Format ${format} won download race for "${title}"`,
+          );
+          for (const process of activeProcesses) {
+            process.kill();
+          }
+          for (const loserFile of activeFiles) {
+            fs.rm(loserFile, { force: true }, () => {});
+          }
+          activeProcesses.clear();
+          activeFiles.clear();
           logger.info(`Audio file is ready for "${title}"`);
           resolve(resource);
         },
       );
+      activeProcesses.add(child);
     }
 
-    attempt(0, 1);
+    for (const format of DOWNLOAD_FORMATS) {
+      attempt(format, 1);
+    }
   });
 }
 

@@ -7,7 +7,11 @@ const {
   NoSubscriberBehavior,
 } = require("@discordjs/voice");
 
-const { getAudioResource, stopAudioResource } = require("./streamAudio");
+const {
+  getAudioResource,
+  prefetchResource,
+  stopAudioResource,
+} = require("./streamAudio");
 const { formatNowPlaying } = require("./formatTrack");
 const disconectTimeMS = require("../consts/disconectTimer");
 const logger = require("./logger").createLogger("Queue");
@@ -41,6 +45,26 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+function triggerPrefetch(state) {
+  if (state.prefetch || state.queue.length === 0) return;
+
+  const { track } = state.queue[0];
+  logger.info(`Prefetching "${track.title}"`);
+  const promise = prefetchResource(track).catch((err) => {
+    logger.warn(`Prefetch failed for "${track.title}": ${err.message}`);
+    return null;
+  });
+  state.prefetch = { track, promise };
+}
+
+async function clearPrefetch(state) {
+  if (!state.prefetch) return;
+  const pending = state.prefetch.promise;
+  state.prefetch = null;
+  const resource = await pending.catch(() => null);
+  stopAudioResource(resource);
+}
+
 /**
  * Per-guild playback state.
  * @type {Map<string, {
@@ -52,6 +76,7 @@ function withTimeout(promise, ms, label) {
  *   resourceStarted: boolean,
  *   resourceStartedAt: number,
  *   currentTextChannel: import('discord.js').TextChannel|null,
+ *   prefetch: { track: object, promise: Promise<import('@discordjs/voice').AudioResource|null> }|null,
  *   disconnectTimer: NodeJS.Timeout|null
  * }>}
  */
@@ -68,6 +93,7 @@ function getState(guildId) {
       resourceStarted: false,
       resourceStartedAt: 0,
       currentTextChannel: null,
+      prefetch: null,
       nowPlaying: null,
       disconnectTimer: null,
     });
@@ -254,16 +280,32 @@ async function processQueue(guildId) {
       VoiceConnectionStatus.Ready,
       RESOURCE_TIMEOUT_MS,
     );
-    const resource = await withTimeout(
-      getAudioResource(track),
-      RESOURCE_TIMEOUT_MS,
-      track.title,
-    );
+    let resource;
+    if (state.prefetch?.track === track) {
+      logger.info(`Using prefetched audio resource for "${track.title}"`);
+      resource = await state.prefetch.promise;
+      state.prefetch = null;
+    } else {
+      if (state.prefetch) {
+        const staleResource = await state.prefetch.promise.catch(() => null);
+        stopAudioResource(staleResource);
+        state.prefetch = null;
+      }
+      resource = await withTimeout(
+        getAudioResource(track),
+        RESOURCE_TIMEOUT_MS,
+        track.title,
+      );
+    }
+    if (!resource) {
+      throw new Error(`Unable to prepare audio for "${track.title}"`);
+    }
     state.currentResource = resource;
     state.resourceStarted = false;
     state.resourceStartedAt = 0;
     state.player.play(resource);
     await textChannel.send(formatNowPlaying(track));
+    triggerPrefetch(state);
   } catch (err) {
     logger.error("Playback error:", err);
     await textChannel
@@ -275,6 +317,7 @@ async function processQueue(guildId) {
     state.resourceStarted = false;
     state.resourceStartedAt = 0;
     state.currentTextChannel = null;
+    await clearPrefetch(state);
     processQueue(guildId);
   }
 }
@@ -306,6 +349,7 @@ function enqueue(message, tracks, provider, type, { playNext = false } = {}) {
 
   if (playNext) {
     // Insert at the front so these play immediately after the current track
+    clearPrefetch(state);
     state.queue.unshift(...items);
     logger.info(
       `Queued ${tracks.length} track(s) next [${provider}/${type}] in guild ${guildId} (queue length: ${state.queue.length})`,
@@ -376,6 +420,7 @@ function clearQueue(guildId) {
   if (!state) return { cleared: 0 };
   const cleared = state.queue.length;
   state.queue = [];
+  clearPrefetch(state);
   logger.info(`Cleared ${cleared} track(s) from queue in guild ${guildId}`);
   return { cleared };
 }
