@@ -6,6 +6,8 @@ const playdl = require("play-dl");
 const { createAudioResource, StreamType } = require("@discordjs/voice");
 
 const YTDLP_PATH = process.env.YTDLP_PATH || "yt-dlp";
+const YTDLP_EXTRACTOR_ARGS =
+  process.env.YTDLP_EXTRACTOR_ARGS || "youtube:player_client=web,android";
 const logger = require("./logger").createLogger("Stream");
 const resourceStreams = new WeakMap();
 const cancelledStreams = new WeakSet();
@@ -164,6 +166,8 @@ function downloadYtdlpFile(videoUrl, title) {
           "1",
           "--no-warnings",
           "--no-progress",
+          "--extractor-args",
+          YTDLP_EXTRACTOR_ARGS,
           "-f",
           format,
           "-o",
