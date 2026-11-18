@@ -361,6 +361,10 @@ function enqueue(message, tracks, provider, type, { playNext = false } = {}) {
     );
   }
 
+  if (state.isPlaying) {
+    triggerPrefetch(state);
+  }
+
   if (!wasAlreadyPlaying) {
     processQueue(guildId);
   }
